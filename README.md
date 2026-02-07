@@ -33,7 +33,7 @@ flowchart TB
 
 ```bash
 # Clone & install
-git clone https://github.com/slavakurilyak/search-ranking-stack.git
+git clone https://github.com/slavadubrov/search-ranking-stack.git
 cd search-ranking-stack
 uv sync
 
