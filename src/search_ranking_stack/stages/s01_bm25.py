@@ -15,7 +15,7 @@ from rich.console import Console
 from tqdm import tqdm
 
 from ..config import TOP_K_RETRIEVAL
-from ..data_loader import BEIRData
+from ..data_loader import ESCIData
 
 console = Console()
 
@@ -31,7 +31,7 @@ def tokenize(text: str) -> list[str]:
     return text.lower().split()
 
 
-def run_bm25(data: BEIRData, top_k: int = TOP_K_RETRIEVAL) -> dict[str, dict[str, float]]:
+def run_bm25(data: ESCIData, top_k: int = TOP_K_RETRIEVAL) -> dict[str, dict[str, float]]:
     """
     Run BM25 retrieval over the corpus.
 

@@ -15,13 +15,13 @@ from rich.console import Console
 from sentence_transformers import SentenceTransformer
 
 from ..config import BI_ENCODER_MODEL, CORPUS_EMBEDDINGS_PATH, TOP_K_RETRIEVAL
-from ..data_loader import BEIRData
+from ..data_loader import ESCIData
 
 console = Console()
 
 
 def run_dense(
-    data: BEIRData,
+    data: ESCIData,
     top_k: int = TOP_K_RETRIEVAL,
     use_cache: bool = True,
 ) -> dict[str, dict[str, float]]:

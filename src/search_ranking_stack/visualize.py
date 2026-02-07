@@ -4,6 +4,7 @@ Visualization module for search ranking metrics.
 Creates:
 1. Grouped bar chart comparing all stages (saved as PNG)
 2. Rich console table for terminal output
+3. ESCI label distribution stacked bar chart
 
 Blog Section: Results visualization
 """
@@ -31,6 +32,14 @@ METRIC_COLORS = {
     "ndcg_cut_10": "#3498db",  # Blue
     "recip_rank": "#e67e22",  # Orange
     "recall_100": "#27ae60",  # Green
+}
+
+# Colors for label distribution
+LABEL_COLORS = {
+    "Exact": "#27ae60",  # Green
+    "Substitute": "#3498db",  # Blue
+    "Complement": "#f39c12",  # Yellow/Orange
+    "Irrelevant": "#e74c3c",  # Red
 }
 
 
@@ -97,7 +106,7 @@ def plot_comparison(
     ax.set_xlabel("Search Pipeline Stage", fontsize=12, fontweight="bold")
     ax.set_ylabel("Score", fontsize=12, fontweight="bold")
     ax.set_title(
-        "Search Ranking Stack: Progressive Metric Improvement on SciFact",
+        "Search Ranking Stack: Progressive NDCG@10 Improvement on Amazon ESCI",
         fontsize=14,
         fontweight="bold",
         pad=20,
@@ -129,6 +138,113 @@ def plot_comparison(
 
     plt.close()
     return output_path
+
+
+def plot_label_distribution(
+    label_dist: dict[str, dict[str, float]],
+    output_path: Path | str | None = None,
+    show: bool = False,
+) -> Path:
+    """
+    Create a stacked bar chart showing ESCI label distribution per stage.
+
+    Args:
+        label_dist: {stage_name: {label_name: fraction}}
+        output_path: Where to save (default: results/label_distribution.png)
+        show: Whether to display interactively
+
+    Returns:
+        Path to saved chart
+    """
+    if output_path is None:
+        output_path = RESULTS_DIR / "label_distribution.png"
+    output_path = Path(output_path)
+
+    # Setup
+    plt.style.use("seaborn-v0_8-whitegrid")
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    stages = list(label_dist.keys())
+    labels = ["Exact", "Substitute", "Complement", "Irrelevant"]
+    x = range(len(stages))
+    bar_width = 0.6
+
+    # Stack bars
+    bottom = [0.0] * len(stages)
+    for label in labels:
+        values = [label_dist[stage].get(label, 0) for stage in stages]
+        ax.bar(
+            x,
+            values,
+            bar_width,
+            label=label,
+            color=LABEL_COLORS[label],
+            bottom=bottom,
+            alpha=0.9,
+        )
+        # Update bottom for stacking
+        bottom = [b + v for b, v in zip(bottom, values)]
+
+    # Customize
+    ax.set_xlabel("Search Pipeline Stage", fontsize=12, fontweight="bold")
+    ax.set_ylabel("Fraction of Top-10 Results", fontsize=12, fontweight="bold")
+    ax.set_title(
+        "ESCI Label Distribution in Top-10 Results by Stage",
+        fontsize=14,
+        fontweight="bold",
+        pad=20,
+    )
+
+    ax.set_xticks(list(x))
+    ax.set_xticklabels(stages, rotation=15, ha="right")
+    ax.set_ylim(0, 1.0)
+
+    # Legend
+    ax.legend(loc="upper right", framealpha=0.95)
+
+    # Clean up
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    plt.tight_layout()
+
+    # Save
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output_path, dpi=150, bbox_inches="tight", facecolor="white")
+    console.print(f"[bold green]✓[/bold green] Label distribution chart saved to: {output_path}")
+
+    if show:
+        plt.show()
+
+    plt.close()
+    return output_path
+
+
+def print_label_distribution(label_dist: dict[str, dict[str, float]]):
+    """Print label distribution table to console."""
+    table = Table(
+        title="Top-10 Label Distribution by Stage",
+        title_style="bold cyan",
+        header_style="bold",
+    )
+
+    table.add_column("Stage", style="bold")
+    table.add_column("Exact", justify="right", style="green")
+    table.add_column("Substitute", justify="right", style="blue")
+    table.add_column("Complement", justify="right", style="yellow")
+    table.add_column("Irrelevant", justify="right", style="red")
+
+    for stage, dist in label_dist.items():
+        table.add_row(
+            stage,
+            f"{dist.get('Exact', 0):.1%}",
+            f"{dist.get('Substitute', 0):.1%}",
+            f"{dist.get('Complement', 0):.1%}",
+            f"{dist.get('Irrelevant', 0):.1%}",
+        )
+
+    console.print()
+    console.print(table)
 
 
 def print_table(all_metrics: dict[str, dict[str, float]]):

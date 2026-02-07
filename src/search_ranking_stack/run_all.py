@@ -18,8 +18,8 @@ import argparse
 from rich.console import Console
 from rich.panel import Panel
 
-from .data_loader import load_scifact
-from .evaluate import evaluate, print_metrics
+from .data_loader import load_esci
+from .evaluate import analyze_label_ranking, evaluate, print_metrics
 from .stages import (
     run_bm25,
     run_cross_encoder,
@@ -27,7 +27,13 @@ from .stages import (
     run_hybrid_rrf,
     run_llm_rerank,
 )
-from .visualize import plot_comparison, print_table, save_metrics
+from .visualize import (
+    plot_comparison,
+    plot_label_distribution,
+    print_label_distribution,
+    print_table,
+    save_metrics,
+)
 
 console = Console()
 
@@ -35,7 +41,7 @@ console = Console()
 def main():
     """Run the complete search ranking pipeline."""
     parser = argparse.ArgumentParser(
-        description="Multi-stage search ranking demo on SciFact benchmark"
+        description="Multi-stage search ranking demo on Amazon ESCI benchmark"
     )
     parser.add_argument(
         "--llm-mode",
@@ -49,13 +55,18 @@ def main():
     console.print(
         Panel.fit(
             "[bold cyan]Search Ranking Stack[/bold cyan]\n"
-            "Multi-stage search ranking demo on SciFact benchmark",
+            "Multi-stage search ranking demo on Amazon ESCI product search benchmark",
             border_style="cyan",
         )
     )
 
     # 1. Load data
-    data = load_scifact()
+    data = load_esci()
+    total_judgments = sum(len(v) for v in data.qrels.values())
+    console.print(
+        f"\n[bold]Loaded ESCI sample:[/bold] {len(data.corpus):,} products, "
+        f"{len(data.queries):,} queries, {total_judgments:,} judgments"
+    )
 
     # 2. Run stages sequentially
     console.print("\n[bold]Running retrieval and reranking stages...[/bold]")
@@ -105,14 +116,20 @@ def main():
     else:
         console.print("\n[dim]Stage 3: LLM Reranking skipped (use --llm-mode to enable)[/dim]")
 
-    # 3. Visualize and save
+    # 3. Analyze label distribution (ESCI-specific)
+    console.print("\n[bold]Analyzing ESCI label distribution...[/bold]")
+    label_dist = {name: analyze_label_ranking(data.qrels, res) for name, res in all_results.items()}
+
+    # 4. Visualize and save
     console.print("\n[bold]Generating results...[/bold]")
 
     save_metrics(all_metrics)
     plot_comparison(all_metrics)
+    plot_label_distribution(label_dist)
     print_table(all_metrics)
+    print_label_distribution(label_dist)
 
-    # 4. Summary
+    # 5. Summary
     console.print("\n[bold green]✓ Pipeline complete![/bold green]")
 
     # Show key insights
@@ -135,6 +152,13 @@ def main():
     ce_ndcg = ce_metrics.get("ndcg_cut_10", 0)
     ce_gain = (ce_ndcg - hybrid_ndcg) * 100
     console.print(f"  • Cross-encoder reranking adds [bold]+{ce_gain:.1f}%[/bold] NDCG@10")
+
+    # Label distribution insight
+    ce_exact = label_dist.get("+ Cross-Encoder", {}).get("Exact", 0)
+    bm25_exact = label_dist.get("BM25", {}).get("Exact", 0)
+    console.print(
+        f"  • Exact matches in top-10: BM25 {bm25_exact:.1%} → Cross-Encoder {ce_exact:.1%}"
+    )
 
     # Recall stays flat after retrieval
     ce_recall = ce_metrics.get("recall_100", 0)

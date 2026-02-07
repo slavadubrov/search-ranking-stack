@@ -24,7 +24,7 @@ from ..config import (
     TOP_K_RERANK_LLM,
     TOP_K_RETRIEVAL,
 )
-from ..data_loader import BEIRData
+from ..data_loader import ESCIData
 
 console = Console()
 
@@ -54,14 +54,19 @@ def _create_listwise_prompt(
 
     docs_formatted = "\n\n".join(doc_texts)
 
-    prompt = f"""I will provide you with {n} passages, each indicated by a numerical identifier \
-[1] to [{n}]. Rank the passages based on their relevance to the search query: "{query}"
-
-{docs_formatted}
-
-Rank the passages from most relevant to least relevant.
-Output ONLY a comma-separated list of passage identifiers, e.g.: [3], [1], [2], ...
-Do not explain your reasoning. Only output the ranking."""
+    prompt = (
+        f"I will provide you with {n} product listings, each indicated by a numerical "
+        f"identifier [1] to [{n}]. Rank the products based on their relevance to the "
+        f'search query: "{query}"\n\n'
+        "Consider:\n"
+        "- Exact matches (product satisfies all query requirements) should rank highest\n"
+        "- Substitutes (functional alternatives) should rank above complements\n"
+        "- Completely irrelevant products should rank lowest\n\n"
+        f"{docs_formatted}\n\n"
+        "Rank the products from most relevant to least relevant.\n"
+        "Output ONLY a comma-separated list of product identifiers, e.g.: [3], [1], [2], ...\n"
+        "Do not explain your reasoning. Only output the ranking."
+    )
 
     return prompt
 
@@ -102,7 +107,7 @@ def _parse_ranking(output: str, n: int) -> list[int] | None:
 
 
 def _run_local_llm(
-    data: BEIRData,
+    data: ESCIData,
     ce_results: dict[str, dict[str, float]],
     top_k_rerank: int,
     top_k_output: int,
@@ -184,7 +189,7 @@ def _run_local_llm(
 
 
 def _run_api_llm(
-    data: BEIRData,
+    data: ESCIData,
     ce_results: dict[str, dict[str, float]],
     top_k_rerank: int,
     top_k_output: int,
@@ -255,7 +260,7 @@ def _run_api_llm(
 
 
 def _run_ollama_llm(
-    data: BEIRData,
+    data: ESCIData,
     ce_results: dict[str, dict[str, float]],
     top_k_rerank: int,
     top_k_output: int,
@@ -334,7 +339,7 @@ def _run_ollama_llm(
 
 
 def run_llm_rerank(
-    data: BEIRData,
+    data: ESCIData,
     ce_results: dict[str, dict[str, float]],
     mode: str,
     top_k_rerank: int = TOP_K_RERANK_LLM,

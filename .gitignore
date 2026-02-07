@@ -63,9 +63,8 @@ tensorboard/
 models/
 
 # Project-specific data
-data/
-tmp/
-results/
+/data/*
+/tmp/*
 
 # Environment secrets
 .env

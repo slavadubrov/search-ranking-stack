@@ -6,6 +6,8 @@ Computes standard IR metrics using pytrec_eval:
 - MRR@10: Mean Reciprocal Rank (how fast we find first relevant doc)
 - Recall@100: Coverage of retrieval stage
 
+ESCI uses graded relevance: Exact=3, Substitute=2, Complement=1, Irrelevant=0
+
 Blog Section: Measuring Search Quality
 """
 
@@ -13,9 +15,12 @@ import numpy as np
 import pytrec_eval
 from rich.console import Console
 
-from .config import EVAL_METRICS
+from .config import ESCI_LABEL_MAP, EVAL_METRICS
 
 console = Console()
+
+# Reverse mapping for display
+ESCI_LABEL_NAMES = {v: k for k, v in ESCI_LABEL_MAP.items()}
 
 
 def evaluate(
@@ -60,6 +65,47 @@ def evaluate(
             avg_scores[metric] = 0.0
 
     return avg_scores
+
+
+def analyze_label_ranking(
+    qrels: dict[str, dict[str, int]],
+    results: dict[str, dict[str, float]],
+    top_k: int = 10,
+) -> dict[str, float]:
+    """
+    Analyze what fraction of top-K results are Exact/Substitute/Complement/Irrelevant.
+
+    This is an ESCI-specific analysis that shows how each stage progressively
+    pushes Exact matches to the top.
+
+    Args:
+        qrels: Ground truth with graded relevance (E=3, S=2, C=1, I=0)
+        results: Search results {query_id: {doc_id: score}}
+        top_k: Number of top results to analyze per query
+
+    Returns:
+        Dictionary with label names as keys and fractions as values
+    """
+    counts = {"Exact": 0, "Substitute": 0, "Complement": 0, "Irrelevant": 0}
+    total = 0
+
+    for qid, ranking in results.items():
+        if qid not in qrels:
+            continue
+
+        # Sort by score descending and take top-k
+        sorted_docs = sorted(ranking.items(), key=lambda x: -x[1])[:top_k]
+
+        for pid, _ in sorted_docs:
+            rel = qrels.get(qid, {}).get(pid, 0)
+            label_name = ESCI_LABEL_NAMES.get(rel, "Irrelevant")
+            counts[label_name] += 1
+            total += 1
+
+    if total == 0:
+        return {name: 0.0 for name in counts}
+
+    return {name: count / total for name, count in counts.items()}
 
 
 def format_metrics(metrics: dict[str, float]) -> str:

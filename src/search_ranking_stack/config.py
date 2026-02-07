@@ -33,34 +33,41 @@ def _find_project_root() -> Path:
     return Path.cwd()
 
 
-# Project paths
+# --- Paths ---
 PROJECT_ROOT = _find_project_root()
 DATA_DIR = PROJECT_ROOT / "data"
-SCIFACT_DIR = DATA_DIR / "scifact"
+ESCI_DIR = DATA_DIR / "esci_sample"
 RESULTS_DIR = PROJECT_ROOT / "results"
 
 # Ensure directories exist
-SCIFACT_DIR.mkdir(parents=True, exist_ok=True)
+ESCI_DIR.mkdir(parents=True, exist_ok=True)
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
-# Model names
+# --- ESCI Dataset ---
+ESCI_HF_DATASET = "tasksource/esci"
+ESCI_LOCALE = "us"
+ESCI_TARGET_QUERIES = 500
+ESCI_SEED = 42
+ESCI_LABEL_MAP = {"Exact": 3, "Substitute": 2, "Complement": 1, "Irrelevant": 0}
+
+# --- Models ---
 BI_ENCODER_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L-12-v2"
 LLM_MODEL_LOCAL = "Qwen/Qwen2.5-1.5B-Instruct"
-LLM_MODEL_API = "claude-sonnet-4-5-20250929"
+LLM_MODEL_API = "claude-haiku-4-5-20251001"
 
 # Ollama configuration
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
-# Retrieval parameters
+# --- Retrieval Parameters ---
 TOP_K_RETRIEVAL = 100  # Number of candidates from retrieval stage
 TOP_K_RERANK_CE = 50  # Number of candidates for cross-encoder reranking
 TOP_K_RERANK_LLM = 10  # Number of candidates for LLM listwise reranking
 RRF_K = 60  # Reciprocal Rank Fusion constant (Cormack et al. 2009)
 
 # Embedding cache
-CORPUS_EMBEDDINGS_PATH = SCIFACT_DIR / "corpus_embeddings.npy"
+CORPUS_EMBEDDINGS_PATH = ESCI_DIR / "corpus_embeddings.npy"
 
-# Evaluation metrics
+# --- Evaluation ---
 EVAL_METRICS = {"ndcg_cut_10", "recip_rank", "recall_100"}

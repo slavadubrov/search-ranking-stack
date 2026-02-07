@@ -15,13 +15,13 @@ from sentence_transformers import CrossEncoder
 from tqdm import tqdm
 
 from ..config import CROSS_ENCODER_MODEL, TOP_K_RERANK_CE, TOP_K_RETRIEVAL
-from ..data_loader import BEIRData
+from ..data_loader import ESCIData
 
 console = Console()
 
 
 def run_cross_encoder(
-    data: BEIRData,
+    data: ESCIData,
     hybrid_results: dict[str, dict[str, float]],
     top_k_rerank: int = TOP_K_RERANK_CE,
     top_k_output: int = TOP_K_RETRIEVAL,
