@@ -4,10 +4,10 @@ Stage 3: LLM Listwise Reranking
 Uses an LLM to perform listwise reranking of the top-10 results.
 Shows the frontier — LLM-as-a-reranker for maximum precision.
 
-Three modes:
-- Mode A: Local model (Qwen2.5-1.5B-Instruct) - requires [llm] extras
-- Mode B: Ollama (any local model) - requires Ollama running
-- Mode C: Claude API - requires [api] extras
+Three modes (selected via --llm-mode):
+- local: HuggingFace model (Qwen2.5-1.5B-Instruct) - requires [llm] extras
+- ollama: Any Ollama model - requires Ollama running
+- api: Claude API - requires [api] extras
 
 Blog Section: 11.3 - LLM Rerankers
 """
@@ -27,47 +27,6 @@ from ..config import (
 from ..data_loader import BEIRData
 
 console = Console()
-
-
-def llm_available() -> str | None:
-    """
-    Check if LLM reranking is available.
-
-    Returns:
-        "local" if local LLM (transformers) is available
-        "ollama" if Ollama is running
-        "api" if Anthropic API is available
-        None if none are available
-    """
-    # Check for local LLM support (HuggingFace transformers)
-    try:
-        import accelerate  # noqa: F401
-        import torch  # noqa: F401
-        import transformers  # noqa: F401
-
-        return "local"
-    except ImportError:
-        pass
-
-    # Check for Ollama
-    try:
-        import httpx
-
-        response = httpx.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=2.0)
-        if response.status_code == 200:
-            return "ollama"
-    except Exception:
-        pass
-
-    # Check for API support
-    try:
-        import anthropic  # noqa: F401
-
-        return "api"
-    except ImportError:
-        pass
-
-    return None
 
 
 def _create_listwise_prompt(
@@ -324,6 +283,7 @@ def _run_ollama_llm(
         try:
             response = httpx.post(
                 f"{OLLAMA_BASE_URL}/api/generate",
+                headers={"Content-Type": "application/json"},
                 json={
                     "model": OLLAMA_MODEL,
                     "prompt": prompt,
@@ -376,6 +336,7 @@ def _run_ollama_llm(
 def run_llm_rerank(
     data: BEIRData,
     ce_results: dict[str, dict[str, float]],
+    mode: str,
     top_k_rerank: int = TOP_K_RERANK_LLM,
     top_k_output: int = TOP_K_RETRIEVAL,
 ) -> dict[str, dict[str, float]]:
@@ -385,14 +346,13 @@ def run_llm_rerank(
     Args:
         data: BEIRData containing corpus
         ce_results: Results from cross-encoder reranking
+        mode: LLM mode - 'local', 'ollama', or 'api'
         top_k_rerank: Number of candidates for LLM to rerank (default 10)
         top_k_output: Number of results to return per query
 
     Returns:
         reranked_results: {query_id: {doc_id: llm_score}}
     """
-    mode = llm_available()
-
     if mode == "local":
         console.print(
             f"\n[bold cyan]Stage 3: LLM Listwise Reranking ({LLM_MODEL_LOCAL})[/bold cyan]"
@@ -408,9 +368,6 @@ def run_llm_rerank(
         return _run_api_llm(data, ce_results, top_k_rerank, top_k_output)
 
     else:
-        console.print("\n[yellow]Stage 3: LLM Reranking skipped[/yellow]")
-        console.print("  Enable LLM reranking with one of:")
-        console.print("    uv sync --extra llm      # Local HuggingFace model")
-        console.print("    ollama pull qwen2.5:7b   # Ollama local model")
-        console.print("    uv sync --extra api      # Claude API")
+        console.print(f"\n[red]Unknown LLM mode: {mode}[/red]")
+        console.print("  Valid modes: 'local', 'ollama', 'api'")
         return {}

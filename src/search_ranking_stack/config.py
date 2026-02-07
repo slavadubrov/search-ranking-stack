@@ -50,7 +50,7 @@ LLM_MODEL_LOCAL = "Qwen/Qwen2.5-1.5B-Instruct"
 LLM_MODEL_API = "claude-sonnet-4-5-20250929"
 
 # Ollama configuration
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
 # Retrieval parameters

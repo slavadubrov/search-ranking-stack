@@ -40,13 +40,18 @@ uv sync
 # Download the SciFact dataset (~5K documents)
 uv run download-data
 
-# Run the full pipeline
+# Run the full pipeline (without LLM reranking)
 uv run run-all
+
+# Run with LLM reranking (choose one)
+uv run run-all --llm-mode ollama   # Ollama local model
+uv run run-all --llm-mode api      # Claude API
+uv run run-all --llm-mode local    # HuggingFace local model
 ```
 
 ### LLM Reranking Options
 
-Choose one of three LLM backends for Stage 3 reranking:
+Use `--llm-mode` to enable Stage 3 LLM reranking:
 
 #### Option A: Ollama (Recommended for Local)
 
@@ -55,10 +60,11 @@ Choose one of three LLM backends for Stage 3 reranking:
 ollama pull qwen2.5:7b   # Best quality (4.4GB)
 # OR: ollama pull llama3.2:3b  # Fastest (2GB)
 
-uv run run-all
+uv run run-all --llm-mode ollama
 ```
 
 **Recommended models for ranking:**
+
 | Model | Size | Quality | Command |
 |-------|------|---------|---------|
 | qwen2.5:7b | 4.4GB | Best | `ollama pull qwen2.5:7b` |
@@ -74,14 +80,14 @@ cp .env.example .env
 # Edit .env and add your ANTHROPIC_API_KEY
 
 uv sync --extra api
-uv run run-all
+uv run run-all --llm-mode api
 ```
 
 #### Option C: Local HuggingFace Model
 
 ```bash
 uv sync --extra llm
-uv run run-all
+uv run run-all --llm-mode local
 ```
 
 ### Configuration
@@ -93,6 +99,7 @@ cp .env.example .env
 ```
 
 Key variables:
+
 - `ANTHROPIC_API_KEY` - Your Anthropic API key for Claude
 - `OLLAMA_MODEL` - Ollama model name (default: `qwen2.5:7b`)
 - `OLLAMA_BASE_URL` - Ollama server URL (default: `http://localhost:11434`)

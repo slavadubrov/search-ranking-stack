@@ -8,10 +8,12 @@ Runs all stages sequentially:
 1b. Dense bi-encoder retrieval
 1c. Hybrid RRF fusion
 2.  Cross-encoder reranking
-3.  LLM listwise reranking (optional)
+3.  LLM listwise reranking (optional, requires --llm-mode)
 
 Then evaluates and visualizes results.
 """
+
+import argparse
 
 from rich.console import Console
 from rich.panel import Panel
@@ -19,7 +21,6 @@ from rich.panel import Panel
 from .data_loader import load_scifact
 from .evaluate import evaluate, print_metrics
 from .stages import (
-    llm_available,
     run_bm25,
     run_cross_encoder,
     run_dense,
@@ -33,6 +34,18 @@ console = Console()
 
 def main():
     """Run the complete search ranking pipeline."""
+    parser = argparse.ArgumentParser(
+        description="Multi-stage search ranking demo on SciFact benchmark"
+    )
+    parser.add_argument(
+        "--llm-mode",
+        choices=["local", "ollama", "api"],
+        default=None,
+        help="LLM reranking mode: 'local' (HuggingFace), 'ollama', or 'api' (Claude). "
+        "If not specified, LLM reranking is skipped.",
+    )
+    args = parser.parse_args()
+
     console.print(
         Panel.fit(
             "[bold cyan]Search Ranking Stack[/bold cyan]\n"
@@ -81,14 +94,16 @@ def main():
         "+ Cross-Encoder": ce_metrics,
     }
 
-    # Stage 3: LLM (optional)
-    if llm_available():
-        llm_results = run_llm_rerank(data, ce_results)
+    # Stage 3: LLM (only if --llm-mode is specified)
+    if args.llm_mode:
+        llm_results = run_llm_rerank(data, ce_results, mode=args.llm_mode)
         if llm_results:
             llm_metrics = evaluate(data.qrels, llm_results)
             print_metrics("LLM Reranker", llm_metrics)
             all_results["+ LLM Reranker"] = llm_results
             all_metrics["+ LLM Reranker"] = llm_metrics
+    else:
+        console.print("\n[dim]Stage 3: LLM Reranking skipped (use --llm-mode to enable)[/dim]")
 
     # 3. Visualize and save
     console.print("\n[bold]Generating results...[/bold]")
