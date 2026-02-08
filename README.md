@@ -1,28 +1,8 @@
-# Search Ranking Stack 🔍
+# Search Ranking Stack
 
-> Hands-on demo: Build a modern search ranking stack from BM25 to LLM reranking, measuring NDCG@10 on the **Amazon ESCI product search benchmark**.
+> Build a modern search ranking stack from BM25 to LLM reranking, measuring NDCG@10 on the **Amazon ESCI product search benchmark**.
 
 ![Metrics Comparison](results/metrics_comparison.png)
-
-This repository accompanies the blog post *"Building a Modern Search Ranking Stack: From Embeddings to LLM-Powered Relevance"*. It walks through the 4-level maturity path on a real product search benchmark, measuring improvement at every stage.
-
-## Why ESCI?
-
-The [Amazon ESCI](https://github.com/amazon-science/esci-data) (Shopping Queries Dataset) is ideal for demonstrating search ranking because:
-
-| Property | Value |
-|----------|-------|
-| **Domain** | Product search — directly relevant to e-commerce and classifieds |
-| **Graded relevance** | 4 levels: Exact (E=3), Substitute (S=2), Complement (C=1), Irrelevant (I=0) |
-| **Vocabulary mismatch** | Users describe *what they want* while listings describe *what the product is* |
-| **Scale** | ~500 sampled queries, ~8.5K products, ~12K judgments (laptop-friendly subset) |
-| **Credibility** | KDD Cup 2022 benchmark, published by Amazon Science |
-
-**ESCI label mapping:**
-- **Exact (E=3):** Product satisfies all query requirements
-- **Substitute (S=2):** Functional alternative (close but not exact)
-- **Complement (C=1):** Related item useful alongside exact match
-- **Irrelevant (I=0):** No relevance to query intent
 
 ## Architecture
 
@@ -91,64 +71,28 @@ uv sync --extra api
 uv run run-all --llm-mode api
 ```
 
-## Expected Results
+## Results
 
 Results from running the full pipeline on Amazon ESCI (~500 queries):
 
 | Stage | NDCG@10 | MRR@10 | Recall@100 |
 |-------|---------|--------|------------|
-| BM25 | ~0.47 | ~0.44 | ~0.78 |
-| Dense Bi-Encoder | ~0.42 | ~0.39 | ~0.75 |
-| Hybrid (RRF) | ~0.57 | ~0.54 | ~0.89 |
-| + Cross-Encoder | ~0.67 | ~0.65 | ~0.89 |
-| + LLM Reranker | ~0.72 | ~0.70 | ~0.89 |
-
-> **Note:** Product search NDCG scores are lower than other IR benchmarks because vocabulary mismatch is more severe in e-commerce.
+| BM25 | 0.585 | 0.812 | 0.741 |
+| Dense Bi-Encoder | 0.611 | 0.808 | 0.825 |
+| Hybrid (RRF) | 0.628 | 0.834 | 0.842 |
+| + Cross-Encoder | 0.645 | 0.860 | 0.842 |
+| + LLM Reranker | 0.717 | 0.901 | 0.842 |
 
 ![Label Distribution](results/label_distribution.png)
 
-## Key Insights
+## Documentation
 
-| Insight | Evidence |
-|---------|----------|
-| Hybrid search outperforms either method alone | RRF NDCG > max(BM25, Dense) |
-| Cross-encoder reranking is the biggest ROI | Largest absolute NDCG jump (~+10%) |
-| LLM reranking adds marginal but visible gain | ~+5% improvement on top-10 |
-| Recall is set at retrieval | Recall@100 stays flat after Stage 1c |
-| Graded relevance reveals quality improvements | E/S/C/I distribution shows progression |
-
-## Stage-by-Stage Breakdown
-
-### Stage 1a: BM25 Baseline
-
-Lexical matching using Okapi BM25. Works well on exact product names, fails on intent queries (vocabulary mismatch).
-
-### Stage 1b: Dense Bi-Encoder
-
-Semantic matching using `all-MiniLM-L6-v2`. Handles synonymy ("cheap laptop" → "budget notebook") but may miss specific SKUs.
-
-### Stage 1c: Hybrid RRF Fusion
-
-Combines BM25 and Dense results using Reciprocal Rank Fusion (k=60). Best of both worlds—lexical precision and semantic recall.
-
-### Stage 2: Cross-Encoder Reranking
-
-Reranks top-50 with `ms-marco-MiniLM-L-12-v2`. Distinguishes Exact from Substitute from Complement—the core product search challenge.
-
-### Stage 3: LLM Listwise Reranking
-
-(Optional) Uses an LLM for listwise comparison of top-10 results. Strongest on "reasoning-heavy" queries requiring domain knowledge.
-
-## Dataset Citation
-
-```bibtex
-@article{reddy2022shopping,
-  title={Shopping Queries Dataset: A Large-Scale {ESCI} Benchmark for Improving Product Search},
-  author={Reddy, Chandan K. and Màrquez, Lluís and Valero, Fran and Rao, Nikhil and Zaragoza, Hugo and Bandyopadhyay, Sambaran and Biswas, Arnab and Xing, Anlu and Subbian, Karthik},
-  journal={arXiv preprint arXiv:2206.06588},
-  year={2022}
-}
-```
+| Doc | What You'll Learn |
+|-----|-------------------|
+| [Project Overview](docs/overview.md) | Architecture, key insights, project structure, how to experiment |
+| [Dataset](docs/dataset.md) | ESCI dataset, graded relevance labels, sampling strategy |
+| [Methods](docs/methods.md) | All 5 ranking methods — how they work, industry use, pros/cons |
+| [Metrics](docs/metrics.md) | NDCG, MRR, Recall — formulas, worked examples, why each matters |
 
 ## References
 
