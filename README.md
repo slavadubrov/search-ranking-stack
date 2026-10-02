@@ -44,7 +44,7 @@ uv run run-all
 # Run with LLM reranking (choose one)
 uv run run-all --llm-mode ollama   # Ollama local model
 uv run run-all --llm-mode api      # Claude API
-uv run run-all --llm-mode local    # HuggingFace local model
+uv sync --extra llm && uv run run-all --llm-mode local  # HuggingFace local model (needs accelerate)
 ```
 
 ### LLM Reranking Options
@@ -55,8 +55,7 @@ Use `--llm-mode` to enable Stage 3 LLM reranking:
 
 ```bash
 # Install Ollama: https://ollama.com/download
-ollama pull qwen2.5:7b   # Best quality (4.4GB)
-# OR: ollama pull llama3.2:3b  # Fastest (2GB)
+ollama pull llama3.2:3b   # default model (2GB); set OLLAMA_MODEL in .env to use another
 
 uv run run-all --llm-mode ollama
 ```
@@ -71,17 +70,28 @@ uv sync --extra api
 uv run run-all --llm-mode api
 ```
 
+#### Option C: Local HuggingFace model
+
+`local` mode loads `Qwen/Qwen2.5-1.5B-Instruct` with `device_map="auto"`, which needs `accelerate`. Install the `llm` extra first:
+
+```bash
+uv sync --extra llm
+uv run run-all --llm-mode local
+```
+
 ## Results
 
-Results from running the full pipeline on Amazon ESCI (~500 queries):
+Results from `uv run run-all --llm-mode ollama` on the ESCI sample (500 queries, 9,870 products, 9,984 judgments). The LLM stage used `llama3.2:3b` through Ollama; 67 of 500 answers (13.4%) failed the parser and kept the cross-encoder order.
 
-| Stage | NDCG@10 | MRR@10 | Recall@100 |
-|-------|---------|--------|------------|
+| Stage | NDCG@10 | MRR | Recall@100 |
+|-------|---------|-----|------------|
 | BM25 | 0.585 | 0.812 | 0.741 |
 | Dense Bi-Encoder | 0.611 | 0.808 | 0.825 |
 | Hybrid (RRF) | 0.628 | 0.834 | 0.842 |
-| + Cross-Encoder | 0.645 | 0.860 | 0.842 |
-| + LLM Reranker | 0.717 | 0.901 | 0.842 |
+| + Cross-Encoder | 0.699 | 0.886 | 0.842 |
+| + LLM Reranker (13.4% fallback) | 0.699 | 0.884 | 0.842 |
+
+MRR counts a result as relevant when its ESCI gain is above 0 and is computed over each returned list of up to 100 results. The sample is not a held-out split; use it to reproduce the stages, not to choose a production model.
 
 ![Label Distribution](results/label_distribution.png)
 

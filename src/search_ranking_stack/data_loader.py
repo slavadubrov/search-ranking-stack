@@ -7,8 +7,6 @@ The ESCI dataset uses 4-level graded relevance:
   - Substitute (S) = 2: Functional alternative
   - Complement (C) = 1: Related but not what user wants
   - Irrelevant (I) = 0: No relevance to query
-
-Blog Section: Data Pipeline
 """
 
 import json

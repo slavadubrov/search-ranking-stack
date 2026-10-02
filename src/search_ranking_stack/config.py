@@ -52,7 +52,7 @@ ESCI_LABEL_MAP = {"Exact": 3, "Substitute": 2, "Complement": 1, "Irrelevant": 0}
 
 # --- Models ---
 BI_ENCODER_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L-12-v2"
+CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L12-v2"
 LLM_MODEL_LOCAL = "Qwen/Qwen2.5-1.5B-Instruct"
 LLM_MODEL_API = "claude-haiku-4-5-20251001"
 

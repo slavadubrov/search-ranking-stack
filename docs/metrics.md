@@ -4,7 +4,7 @@ How we measure search quality — and why these three metrics tell the full stor
 
 ## Why Measurement Matters
 
-A ranking system that "feels better" isn't enough. Each stage in the pipeline must prove its value with numbers. We use three complementary metrics that together capture **ranking quality** (NDCG@10), **user experience** (MRR@10), and **retrieval coverage** (Recall@100).
+A ranking system that "feels better" isn't enough. Each stage in the pipeline must prove its value with numbers. We use three complementary metrics that together capture **ranking quality** (NDCG@10), **user experience** (MRR), and **retrieval coverage** (Recall@100).
 
 ## Metrics Used
 
@@ -42,7 +42,7 @@ NDCG@3 = 9.393 / 12.916 = **0.727**
 
 ---
 
-### MRR@10 — Mean Reciprocal Rank
+### MRR — Mean Reciprocal Rank
 
 **What it measures:** How quickly the user finds the first relevant result. Answers: "How far does the user have to scroll?"
 
@@ -56,7 +56,7 @@ RR(q) = 1 / rank_of_first_relevant_result
 MRR   = (1/|Q|) Σ RR(q)
 ```
 
-A relevant result at position 1 gives RR=1.0, at position 3 gives RR=0.333, and no relevant result in top-10 gives RR=0.
+A result counts as relevant when its ESCI gain is above 0 (Complement, Substitute, or Exact). A relevant result at position 1 gives RR=1.0, at position 3 gives RR=0.333, and no relevant result in the returned list gives RR=0. The evaluator uses `pytrec_eval`'s `recip_rank` over each returned list of up to 100 results, so this is MRR, not MRR@10.
 
 **Worked example:**
 
@@ -117,7 +117,7 @@ flowchart LR
     NDCG["NDCG@10<br/>Critical here"] -.-> S2
     NDCG -.-> S3
 
-    MRR["MRR@10<br/>Critical here"] -.-> S2
+    MRR["MRR<br/>Critical here"] -.-> S2
     MRR -.-> S3
 
     style R100 fill:#27ae60,color:white
@@ -127,15 +127,9 @@ flowchart LR
 
 **Key observation from our results:**
 
-| Stage | NDCG@10 | MRR@10 | Recall@100 |
-|-------|---------|--------|------------|
-| BM25 | 0.585 | 0.812 | 0.741 |
-| Dense Bi-Encoder | 0.611 | 0.808 | 0.825 |
-| Hybrid (RRF) | 0.628 | 0.834 | 0.842 |
-| + Cross-Encoder | 0.645 | 0.860 | 0.842 |
-| + LLM Reranker | 0.717 | 0.901 | 0.842 |
+See the [results table in the README](../README.md#results) for the measured numbers.
 
-Recall@100 jumps from 0.741 → 0.842 across retrieval stages, then **stays at 0.842** through both reranking stages. This confirms the fundamental rule: retrieval sets the ceiling, reranking optimizes within it.
+Recall@100 jumps from 0.741 → 0.842 across retrieval stages, then **stays at 0.842** through both reranking stages. Rerankers reorder the retrieved candidates and cannot add one, so recall cannot rise after retrieval.
 
 ---
 

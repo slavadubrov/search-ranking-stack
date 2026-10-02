@@ -4,12 +4,10 @@ ESCI Dataset Download & Sampling Script.
 Entry point: `uv run download-data`
 
 Downloads the Amazon ESCI (Shopping Queries Dataset) from HuggingFace and samples
-a laptop-friendly subset (~500 queries, ~8.5K products, ~12K judgments).
+a laptop-friendly subset (500 queries, ~9.9K products, ~10K judgments).
 
 Source: HuggingFace `tasksource/esci` — pre-joined version of Amazon's Shopping
 Queries Dataset that merges examples + product metadata.
-
-Blog Section: Data Pipeline
 """
 
 from pathlib import Path

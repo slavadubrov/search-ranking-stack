@@ -6,8 +6,6 @@ This is the core blog thesis — hybrid search outperforms either method alone.
 
 Algorithm: RRF_score(d) = Σ 1/(k + rank(d, r)) for each ranking r
 Where k = 60 (Cormack et al. 2009)
-
-Blog Section: 5 - Hybrid Retrieval
 """
 
 import time

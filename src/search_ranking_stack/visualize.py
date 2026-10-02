@@ -5,8 +5,6 @@ Creates:
 1. Grouped bar chart comparing all stages (saved as PNG)
 2. Rich console table for terminal output
 3. ESCI label distribution stacked bar chart
-
-Blog Section: Results visualization
 """
 
 import json
@@ -23,7 +21,7 @@ console = Console()
 # Friendly display names for metrics
 METRIC_DISPLAY_NAMES = {
     "ndcg_cut_10": "NDCG@10",
-    "recip_rank": "MRR@10",
+    "recip_rank": "MRR",
     "recall_100": "Recall@100",
 }
 

@@ -3,12 +3,10 @@ Evaluation module for search ranking.
 
 Computes standard IR metrics using pytrec_eval:
 - NDCG@10: Normalized Discounted Cumulative Gain (primary metric)
-- MRR@10: Mean Reciprocal Rank (how fast we find first relevant doc)
+- MRR: Mean Reciprocal Rank of the first result with relevance > 0, over up to 100 results
 - Recall@100: Coverage of retrieval stage
 
 ESCI uses graded relevance: Exact=3, Substitute=2, Complement=1, Irrelevant=0
-
-Blog Section: Measuring Search Quality
 """
 
 import numpy as np
@@ -115,7 +113,7 @@ def format_metrics(metrics: dict[str, float]) -> str:
         # Clean up metric name for display
         display_name = name.replace("_cut_", "@").replace("_", " ").upper()
         if display_name == "RECIP RANK":
-            display_name = "MRR@10"
+            display_name = "MRR"
         elif display_name == "RECALL 100":
             display_name = "Recall@100"
         parts.append(f"{display_name}: {value:.4f}")
