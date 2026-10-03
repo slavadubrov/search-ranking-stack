@@ -20,7 +20,7 @@ flowchart TB
     end
 
     subgraph "Stage 2: Reranking"
-        RRF --> |"Top-50"| CE["Cross-Encoder<br/><i>ms-marco-MiniLM-L-12-v2</i>"]
+        RRF --> |"Top-50"| CE["Cross-Encoder<br/><i>ms-marco-MiniLM-L12-v2</i>"]
         CE --> |"Top-10"| LLM["LLM Reranker<br/><i>RankGPT-style listwise</i>"]
     end
 
@@ -37,7 +37,7 @@ Each stage narrows the candidate set while improving precision:
 
 ```mermaid
 flowchart LR
-    Corpus["Full Corpus<br/>~8,500 products"] --> S1["BM25 + Dense<br/>Top-100 each"]
+    Corpus["Full Corpus<br/>~9,900 products"] --> S1["BM25 + Dense<br/>Top-100 each"]
     S1 --> S1c["RRF Fusion<br/>100 candidates"]
     S1c --> S2["Cross-Encoder<br/>Top-50 reranked"]
     S2 --> S3["LLM Reranker<br/>Top-10 reranked"]
@@ -50,26 +50,19 @@ flowchart LR
     style S3 fill:#9b59b6,color:white
 ```
 
-**Why this funnel shape?** Cost and latency increase dramatically at each stage. BM25 scores 8,500 documents in milliseconds. The cross-encoder takes ~100ms per query on 50 candidates. The LLM takes seconds on 10 candidates. By filtering aggressively, we get the best model's quality at a fraction of the cost.
+**Why this funnel shape?** Cost and latency increase dramatically at each stage. BM25 scores 9,870 documents in milliseconds. The cross-encoder scores 50 candidates per query, and the LLM reads 10. By filtering aggressively, we get the best model's quality at a fraction of the cost.
 
 ## Key Insights
 
-Results from running the full pipeline on Amazon ESCI (~500 queries):
-
-| Stage | NDCG@10 | MRR@10 | Recall@100 |
-|-------|---------|--------|------------|
-| BM25 | 0.585 | 0.812 | 0.741 |
-| Dense Bi-Encoder | 0.611 | 0.808 | 0.825 |
-| Hybrid (RRF) | 0.628 | 0.834 | 0.842 |
-| + Cross-Encoder | 0.645 | 0.860 | 0.842 |
-| + LLM Reranker | 0.717 | 0.901 | 0.842 |
+See the [results table in the README](../README.md#results) for the measured numbers.
 
 | Insight | Evidence |
 |---------|----------|
 | **Hybrid search outperforms either method alone** | RRF NDCG (0.628) > max(BM25 0.585, Dense 0.611) |
 | **Dense beats BM25 on this dataset** | Dense NDCG 0.611 vs BM25 0.585 — semantic matching helps with product search vocabulary mismatch |
 | **Recall is set at retrieval** | Recall@100 stays at 0.842 through both reranking stages |
-| **LLM reranking provides the largest single jump** | +0.072 NDCG@10 from cross-encoder to LLM reranker |
+| **The cross-encoder provides the largest single jump** | +0.071 NDCG@10 over hybrid RRF (0.628 → 0.699) |
+| **A small local LLM adds nothing on top** | `llama3.2:3b` leaves NDCG@10 at 0.699, with 13.4% of answers falling back to cross-encoder order |
 | **Graded relevance reveals quality differences** | Label distribution plots show progression from Complement to Exact in top positions |
 
 ## Project Structure

@@ -79,12 +79,12 @@ Target:    500 queries
 Seed:      42 (reproducible)
 Locale:    us (English only)
 Filter:    small_version == 1 ("hard" queries)
-Result:    ~500 queries, ~8.5K products, ~12K judgments
+Result:    500 queries, 9,870 products, 9,984 judgments
 ```
 
 **Why "hard" queries?** The `small_version` flag in ESCI marks queries that are more challenging — typically ones with vocabulary mismatch, ambiguity, or many near-relevant products. These are more interesting for benchmarking because trivial queries don't differentiate ranking methods.
 
-**Why 500 queries?** This gives statistically stable metric averages while keeping total runtime under 5 minutes on a laptop (without LLM reranking). More queries add diminishing returns to metric stability.
+**Why 500 queries?** This keeps a full run small: on an Apple M5 Max CPU, all five stages (including `llama3.2:3b` through Ollama) took about 17 minutes, most of it the cross-encoder. More queries add diminishing returns to metric stability.
 
 ## Data Pipeline
 
@@ -93,9 +93,9 @@ flowchart LR
     HF["HuggingFace<br/><code>tasksource/esci</code><br/>~2.5GB"] --> Filter["Filter<br/>locale=us<br/>small_version=1"]
     Filter --> Sample["Sample<br/>500 queries<br/>seed=42"]
     Sample --> Split["Split into<br/>3 JSONL files"]
-    Split --> Corpus["corpus.jsonl<br/>~8.5K products"]
+    Split --> Corpus["corpus.jsonl<br/>9,870 products"]
     Split --> Queries["queries.jsonl<br/>~500 queries"]
-    Split --> Qrels["qrels.jsonl<br/>~12K judgments"]
+    Split --> Qrels["qrels.jsonl<br/>9,984 judgments"]
 
     style HF fill:#3498db,color:white
     style Sample fill:#e67e22,color:white

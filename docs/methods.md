@@ -7,12 +7,12 @@ A deep dive into the five ranking methods in this project — how each works, wh
 Modern search systems don't use a single model. They use a **cascade** of increasingly powerful (and expensive) models, each filtering fewer candidates:
 
 ```
-8,500 products → [BM25/Dense] → 100 candidates → [RRF] → 100 → [Cross-Encoder] → 50 → [LLM] → 10
+9,870 products → [BM25/Dense] → 100 candidates → [RRF] → 100 → [Cross-Encoder] → 50 → [LLM] → 10
 ```
 
 **Why cascade instead of using the best model on everything?**
 
-A cross-encoder scoring all 8,500 products would take ~100 seconds per query. An LLM scoring all 8,500 would take hours and cost dollars. The cascade spends cheap compute to filter down to a manageable set, then applies expensive models only where they matter. This is the same pattern used at Google, Amazon, and every major search engine.
+A cross-encoder scoring all 9,870 products would take ~100 seconds per query. An LLM scoring all 9,870 would take hours and cost dollars. The cascade spends cheap compute to filter down to a manageable set, then applies expensive models only where they matter. This is the same pattern used at Google, Amazon, and every major search engine.
 
 ---
 
@@ -219,7 +219,7 @@ flowchart TB
 
 **The trade-off:** Cross-encoders can't precompute document representations (each query-document pair requires a fresh forward pass). This makes them ~100x slower than bi-encoders, which is why we only run them on the top-50 candidates from hybrid retrieval.
 
-**Model used:** [`ms-marco-MiniLM-L-12-v2`](https://huggingface.co/cross-encoder/ms-marco-MiniLM-L-12-v2) (33M parameters). Trained on MS MARCO passage ranking, transfers well to product search.
+**Model used:** [`ms-marco-MiniLM-L12-v2`](https://huggingface.co/cross-encoder/ms-marco-MiniLM-L12-v2) (33M parameters). Trained on MS MARCO passage ranking, transfers well to product search.
 
 ### Where It's Used in Industry
 
@@ -240,7 +240,7 @@ Cross-encoders are the industry standard for reranking. Cohere Rerank, Google's 
 
 ### Implementation
 
-Reranks top-50 hybrid candidates per query. Truncates document text to ~512 tokens. Unreranked documents beyond position 50 are retained with penalized scores.
+Reranks top-50 hybrid candidates per query. Truncates document text to ~512 tokens. Documents beyond position 50 are appended in their hybrid order. The stage then assigns strictly decreasing rank scores (100 … 1), because cross-encoder scores can be negative and must not be mixed with the tail's positive RRF scores.
 
 Source: [`src/search_ranking_stack/stages/s04_cross_encoder.py`](../src/search_ranking_stack/stages/s04_cross_encoder.py) | Config: `TOP_K_RERANK_CE = 50`
 
@@ -278,7 +278,7 @@ Output ONLY a comma-separated list: [3], [1], [2], ...
 | `api` | `claude-haiku-4-5-20251001` | Anthropic API |
 | `local` | `Qwen/Qwen2.5-1.5B-Instruct` | HuggingFace Transformers |
 
-**Fallback logic:** If the LLM output can't be parsed (missing bracket numbers, wrong count), the system falls back to the cross-encoder ordering. Partial outputs are padded with remaining positions in original order.
+**Fallback logic:** The parser accepts a ranking only if it names every candidate exactly once. A missing, duplicate, or out-of-range identifier, or a backend error, keeps the full cross-encoder order for that query and counts a fallback. `run-all` prints the fallback rate and saves it as `fallback_rate` in `results/metrics.json`.
 
 ### Where It's Used in Industry
 
@@ -310,21 +310,15 @@ Source: [`src/search_ranking_stack/stages/s05_llm_rerank.py`](../src/search_rank
 
 | Method | Type | Approach | Candidates In | Candidates Out | Training Needed | Primary Strength | Primary Weakness |
 |--------|------|----------|---------------|----------------|-----------------|------------------|------------------|
-| BM25 | Retrieval | Lexical (term matching) | 8,500 | 100 | None | Exact keyword match | Vocabulary mismatch |
-| Dense Bi-Encoder | Retrieval | Semantic (embeddings) | 8,500 | 100 | Pre-trained | Semantic similarity | Misses exact terms |
+| BM25 | Retrieval | Lexical (term matching) | 9,870 | 100 | None | Exact keyword match | Vocabulary mismatch |
+| Dense Bi-Encoder | Retrieval | Semantic (embeddings) | 9,870 | 100 | Pre-trained | Semantic similarity | Misses exact terms |
 | Hybrid RRF | Fusion | Rank combination | 200 (2×100) | 100 | None | Best of both worlds | Can't learn preferences |
 | Cross-Encoder | Reranking | Cross-attention | 50 | 50 | Pre-trained | Fine-grained relevance | Too slow for full corpus |
 | LLM Reranker | Reranking | Listwise reasoning | 10 | 10 | None (zero-shot) | Complex reasoning | Slow, expensive, non-deterministic |
 
 ### Results on ESCI
 
-| Stage | NDCG@10 | MRR@10 | Recall@100 | NDCG@10 Delta |
-|-------|---------|--------|------------|---------------|
-| BM25 | 0.585 | 0.812 | 0.741 | — |
-| Dense Bi-Encoder | 0.611 | 0.808 | 0.825 | +0.026 |
-| Hybrid (RRF) | 0.628 | 0.834 | 0.842 | +0.017 |
-| + Cross-Encoder | 0.645 | 0.860 | 0.842 | +0.017 |
-| + LLM Reranker | 0.717 | 0.901 | 0.842 | +0.072 |
+See the [results table in the README](../README.md#results) for the measured numbers.
 
 ---
 

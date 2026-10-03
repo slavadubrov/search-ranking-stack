@@ -1,14 +1,16 @@
 """
 Stage 2: Cross-Encoder Reranking
 
-Reranks the hybrid top-K candidates with a cross-encoder.
-This is typically the biggest ROI jump in search quality.
+Scores the first `top_k_rerank` hybrid candidates with a cross-encoder, puts them
+in score order, and appends the unscored candidates in their hybrid order.
 
-Model: ms-marco-MiniLM-L-12-v2 (33M params, ~12ms per pair on CPU)
-Blog Section: 11 - Rerankers
+Model: cross-encoder/ms-marco-MiniLM-L12-v2
+Article: https://slavadubrov.github.io/blog/2026/02/08/search-ranking-stack/
+Section: Cross-encoder reranking
 """
 
 import time
+from math import isfinite
 
 from rich.console import Console
 from sentence_transformers import CrossEncoder
@@ -20,85 +22,78 @@ from ..data_loader import ESCIData
 console = Console()
 
 
+def rank_scores(ordered_ids: list[str]) -> dict[str, float]:
+    """Assign strictly decreasing scores (n, n-1, ..., 1) to an ordered list of IDs.
+
+    Evaluation sorts by score, so the scores must encode the order. These are rank
+    scores, not calibrated relevance estimates.
+    """
+    return {doc_id: float(len(ordered_ids) - rank) for rank, doc_id in enumerate(ordered_ids)}
+
+
+def sorted_candidates(results: dict[str, float], limit: int) -> list[tuple[str, float]]:
+    """Return (doc_id, score) pairs by descending score, ties broken by doc_id."""
+    return sorted(results.items(), key=lambda item: (-item[1], item[0]))[:limit]
+
+
+def merge_head_and_tail(
+    original: list[tuple[str, float]], scored_head: list[tuple[str, float]]
+) -> dict[str, float]:
+    """Order the scored head by its new scores, then append the unscored tail in its old order.
+
+    Cross-encoder scores can be negative, so they must not be mixed with the tail's
+    RRF scores: a positive RRF score would sort an unscored tail document above a
+    negatively scored head document.
+    """
+    head_ids = [doc_id for doc_id, _ in sorted(scored_head, key=lambda item: (-item[1], item[0]))]
+    tail_ids = [doc_id for doc_id, _ in original[len(scored_head) :]]
+    return rank_scores(head_ids + tail_ids)
+
+
 def run_cross_encoder(
     data: ESCIData,
     hybrid_results: dict[str, dict[str, float]],
     top_k_rerank: int = TOP_K_RERANK_CE,
     top_k_output: int = TOP_K_RETRIEVAL,
 ) -> dict[str, dict[str, float]]:
-    """
-    Rerank hybrid results with a cross-encoder.
-
-    Cross-encoders score (query, document) pairs jointly, providing
-    more accurate relevance scores than bi-encoders at the cost of
-    not being able to pre-compute document embeddings.
-
-    Args:
-        data: BEIRData containing corpus
-        hybrid_results: Results from hybrid RRF fusion
-        top_k_rerank: Number of candidates to rerank per query
-        top_k_output: Number of results to return per query
+    """Rerank hybrid results with a cross-encoder.
 
     Returns:
-        reranked_results: {query_id: {doc_id: cross_encoder_score}}
+        {query_id: {doc_id: rank_score}}, with the scored head ahead of the unscored tail.
     """
+    if top_k_rerank < 0:
+        raise ValueError("top_k_rerank must be non-negative")
+
     console.print(
         f"\n[bold cyan]Stage 2: Cross-Encoder Reranking ({CROSS_ENCODER_MODEL})[/bold cyan]"
     )
-
-    # Load model
     console.print("  Loading cross-encoder model...")
     model = CrossEncoder(CROSS_ENCODER_MODEL)
-
     console.print(f"  Reranking top-{top_k_rerank} candidates per query...")
 
     reranked_results: dict[str, dict[str, float]] = {}
-    query_times: list[float] = []
+    start = time.time()
 
     for query_id, query_text in tqdm(data.queries.items(), desc="  Reranking"):
         if query_id not in hybrid_results:
             continue
 
-        start = time.time()
+        original = sorted_candidates(hybrid_results[query_id], top_k_output)
+        candidates = original[:top_k_rerank]
 
-        # Get top-k candidates for reranking
-        candidates = list(hybrid_results[query_id].items())[:top_k_rerank]
+        # Form (query, document) pairs for joint encoding
+        doc_ids = [doc_id for doc_id, _ in candidates]
+        pairs = [[query_text, data.corpus[doc_id][:2048]] for doc_id in doc_ids]
 
-        # Form (query, document) pairs
-        pairs = []
-        doc_ids = []
-        for doc_id, _ in candidates:
-            doc_text = data.corpus.get(doc_id, "")
-            # Truncate to ~512 tokens (rough estimate: 4 chars per token)
-            doc_text = doc_text[:2048]
-            pairs.append([query_text, doc_text])
-            doc_ids.append(doc_id)
+        scores = model.predict(pairs, batch_size=64, show_progress_bar=False) if pairs else []
+        if len(scores) != len(doc_ids) or not all(isfinite(s) for s in scores):
+            raise ValueError("Expected one finite score per candidate")
 
-        # Score all pairs
-        if pairs:
-            scores = model.predict(pairs, batch_size=64, show_progress_bar=False)
+        reranked_results[query_id] = merge_head_and_tail(original, list(zip(doc_ids, scores)))
 
-            # Create reranked results
-            scored_docs = list(zip(doc_ids, scores))
-            scored_docs.sort(key=lambda x: x[1], reverse=True)
-
-            # Take reranked top-k, then append remaining from original list
-            reranked = {doc_id: float(score) for doc_id, score in scored_docs[:top_k_output]}
-
-            # Add remaining docs from original results (positions beyond top_k_rerank)
-            remaining = list(hybrid_results[query_id].items())[top_k_rerank:top_k_output]
-            for doc_id, score in remaining:
-                if doc_id not in reranked:
-                    reranked[doc_id] = float(score) * 0.01  # Penalize unreranked docs
-
-            reranked_results[query_id] = reranked
-
-        query_times.append(time.time() - start)
-
-    avg_time_ms = sum(query_times) / len(query_times) * 1000
+    elapsed = time.time() - start
     console.print(
-        f"  {len(data.queries):,}/{len(data.queries):,} queries reranked "
-        f"(avg {avg_time_ms:.0f}ms/query)"
+        f"  {len(reranked_results):,} queries reranked in {elapsed:.1f}s "
+        f"(avg {elapsed / max(len(reranked_results), 1) * 1000:.0f}ms/query)"
     )
-
     return reranked_results

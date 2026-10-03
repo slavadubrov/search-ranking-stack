@@ -107,12 +107,12 @@ def main():
 
     # Stage 3: LLM (only if --llm-mode is specified)
     if args.llm_mode:
-        llm_results = run_llm_rerank(data, ce_results, mode=args.llm_mode)
-        if llm_results:
-            llm_metrics = evaluate(data.qrels, llm_results)
-            print_metrics("LLM Reranker", llm_metrics)
-            all_results["+ LLM Reranker"] = llm_results
-            all_metrics["+ LLM Reranker"] = llm_metrics
+        llm_results, fallbacks = run_llm_rerank(data, ce_results, mode=args.llm_mode)
+        llm_metrics = evaluate(data.qrels, llm_results)
+        llm_metrics["fallback_rate"] = fallbacks / max(len(llm_results), 1)
+        print_metrics("LLM Reranker", llm_metrics)
+        all_results["+ LLM Reranker"] = llm_results
+        all_metrics["+ LLM Reranker"] = llm_metrics
     else:
         console.print("\n[dim]Stage 3: LLM Reranking skipped (use --llm-mode to enable)[/dim]")
 
@@ -145,13 +145,15 @@ def main():
         gain = (hybrid_ndcg - max_individual) * 100
         console.print(
             f"  • Hybrid RRF outperforms best individual method by "
-            f"[bold]+{gain:.1f}%[/bold] NDCG@10"
+            f"[bold]+{gain:.1f}[/bold] NDCG@10 points"
         )
 
     # Cross-encoder improvement
     ce_ndcg = ce_metrics.get("ndcg_cut_10", 0)
     ce_gain = (ce_ndcg - hybrid_ndcg) * 100
-    console.print(f"  • Cross-encoder reranking adds [bold]+{ce_gain:.1f}%[/bold] NDCG@10")
+    console.print(
+        f"  • Cross-encoder reranking changes NDCG@10 by [bold]{ce_gain:+.1f}[/bold] points"
+    )
 
     # Label distribution insight
     ce_exact = label_dist.get("+ Cross-Encoder", {}).get("Exact", 0)

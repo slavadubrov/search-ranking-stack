@@ -3,8 +3,6 @@ Stage 1a: BM25 Sparse Retrieval
 
 Establishes the lexical baseline using the Okapi BM25 algorithm.
 Shows where keyword matching works and where it fails.
-
-Blog Section: 3.1 - Sparse Retrievers (Term-based)
 """
 
 import time

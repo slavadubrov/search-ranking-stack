@@ -6,7 +6,7 @@ readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"
 authors = [
-    { name = "Slava Kurilyak" }
+    { name = "Viacheslav Dubrov" }
 ]
 dependencies = [
     "datasets>=3.0",

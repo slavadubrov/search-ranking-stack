@@ -5,7 +5,6 @@ Semantic retrieval using sentence embeddings.
 Catches what BM25 misses via vocabulary mismatch.
 
 Model: all-MiniLM-L6-v2 (22M params, fast, no GPU needed)
-Blog Section: 3.2 - Dense Retrievers (Semantic)
 """
 
 import time

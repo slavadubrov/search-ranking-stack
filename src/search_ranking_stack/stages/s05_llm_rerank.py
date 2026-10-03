@@ -1,20 +1,24 @@
 """
 Stage 3: LLM Listwise Reranking
 
-Uses an LLM to perform listwise reranking of the top-10 results.
-Shows the frontier — LLM-as-a-reranker for maximum precision.
+Asks an LLM to order the cross-encoder's top 10 (inspired by RankGPT). The demo
+accepts an answer only if it names every candidate exactly once; otherwise it keeps
+the cross-encoder order for that query and counts a fallback.
 
 Three modes (selected via --llm-mode):
-- local: HuggingFace model (Qwen2.5-1.5B-Instruct) - requires [llm] extras
+- local: HuggingFace model (Qwen2.5-1.5B-Instruct) - requires `uv sync --extra llm`
 - ollama: Any Ollama model - requires Ollama running
-- api: Claude API - requires [api] extras
+- api: Claude API - requires `uv sync --extra api` and ANTHROPIC_API_KEY
 
-Blog Section: 11.3 - LLM Rerankers
+Article: https://slavadubrov.github.io/blog/2026/02/08/search-ranking-stack/
+Section: LLM listwise reranking
 """
 
 import re
+from collections.abc import Callable
 
 from rich.console import Console
+from tqdm import tqdm
 
 from ..config import (
     LLM_MODEL_API,
@@ -25,6 +29,7 @@ from ..config import (
     TOP_K_RETRIEVAL,
 )
 from ..data_loader import ESCIData
+from .s04_cross_encoder import rank_scores, sorted_candidates
 
 console = Console()
 
@@ -32,29 +37,17 @@ console = Console()
 def _create_listwise_prompt(
     query: str, documents: list[tuple[str, str]], max_words: int = 200
 ) -> str:
-    """
-    Create a listwise ranking prompt inspired by RankGPT.
-
-    Args:
-        query: The search query
-        documents: List of (doc_id, doc_text) tuples
-        max_words: Max words per document
-
-    Returns:
-        The formatted prompt
-    """
+    """Create a listwise ranking prompt inspired by RankGPT."""
     n = len(documents)
 
     doc_texts = []
-    for i, (doc_id, doc_text) in enumerate(documents, start=1):
-        # Truncate to max_words
+    for i, (_doc_id, doc_text) in enumerate(documents, start=1):
         words = doc_text.split()[:max_words]
-        truncated = " ".join(words)
-        doc_texts.append(f"[{i}] {truncated}")
+        doc_texts.append(f"[{i}] {' '.join(words)}")
 
     docs_formatted = "\n\n".join(doc_texts)
 
-    prompt = (
+    return (
         f"I will provide you with {n} product listings, each indicated by a numerical "
         f"identifier [1] to [{n}]. Rank the products based on their relevance to the "
         f'search query: "{query}"\n\n'
@@ -68,274 +61,132 @@ def _create_listwise_prompt(
         "Do not explain your reasoning. Only output the ranking."
     )
 
-    return prompt
-
 
 def _parse_ranking(output: str, n: int) -> list[int] | None:
-    """
-    Parse LLM output to extract ranking order.
+    """Return 0-based positions if the output ranks IDs 1..n exactly once."""
+    positions = [int(m) - 1 for m in re.findall(r"\[(\d+)\]", output)]
 
-    Args:
-        output: Raw LLM output
-        n: Expected number of items
-
-    Returns:
-        List of 0-indexed positions, or None if parsing fails
-    """
-    # Extract all [N] patterns
-    matches = re.findall(r"\[(\d+)\]", output)
-
-    if not matches:
+    # Reject missing, duplicate, and out-of-range IDs.
+    if sorted(positions) != list(range(n)):
         return None
 
-    try:
-        # Convert to 0-indexed positions
-        positions = [int(m) - 1 for m in matches]
-
-        # Validate
-        if len(positions) < n:
-            # Pad with remaining positions in order
-            seen = set(positions)
-            for i in range(n):
-                if i not in seen:
-                    positions.append(i)
-
-        return positions[:n]
-
-    except (ValueError, IndexError):
-        return None
+    return positions
 
 
-def _run_local_llm(
+def _rerank(
     data: ESCIData,
     ce_results: dict[str, dict[str, float]],
+    generate: Callable[[str], str],
     top_k_rerank: int,
     top_k_output: int,
-) -> dict[str, dict[str, float]]:
-    """Run reranking with local Qwen model."""
-    from tqdm import tqdm
+) -> tuple[dict[str, dict[str, float]], int]:
+    """Run listwise reranking with one backend.
+
+    Returns:
+        ({query_id: {doc_id: rank_score}}, number of queries that fell back to CE order)
+    """
+    reranked_results: dict[str, dict[str, float]] = {}
+    fallbacks = 0
+
+    for query_id, query_text in tqdm(data.queries.items(), desc="  LLM Reranking"):
+        if query_id not in ce_results:
+            continue
+
+        original = sorted_candidates(ce_results[query_id], top_k_output)
+        ce_ids = [doc_id for doc_id, _ in original]
+        head = ce_ids[:top_k_rerank]
+        documents = [(doc_id, data.corpus.get(doc_id, "")) for doc_id in head]
+
+        try:
+            ranking = _parse_ranking(
+                generate(_create_listwise_prompt(query_text, documents)), len(head)
+            )
+        except Exception as e:  # network or backend error: count it as a fallback
+            console.print(f"    [yellow]LLM error for query {query_id}: {e}[/yellow]")
+            ranking = None
+
+        if ranking is None:
+            fallbacks += 1
+            ordered = ce_ids  # keep the entire cross-encoder order
+        else:
+            ordered = [head[i] for i in ranking] + ce_ids[top_k_rerank:]
+
+        reranked_results[query_id] = rank_scores(ordered)
+
+    total = len(reranked_results)
+    console.print(
+        f"  {total:,} queries processed: {total - fallbacks:,} parsed, "
+        f"{fallbacks:,} fell back to cross-encoder order "
+        f"(fallback rate {fallbacks / max(total, 1):.1%})"
+    )
+    return reranked_results, fallbacks
+
+
+def _local_generate() -> Callable[[str], str]:
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     console.print(f"  Loading local model: {LLM_MODEL_LOCAL}...")
-
     tokenizer = AutoTokenizer.from_pretrained(LLM_MODEL_LOCAL)
     model = AutoModelForCausalLM.from_pretrained(
-        LLM_MODEL_LOCAL,
-        torch_dtype="auto",
-        device_map="auto",
+        LLM_MODEL_LOCAL, torch_dtype="auto", device_map="auto"
     )
 
-    reranked_results: dict[str, dict[str, float]] = {}
-    parse_failures = 0
-
-    for query_id, query_text in tqdm(data.queries.items(), desc="  LLM Reranking"):
-        if query_id not in ce_results:
-            continue
-
-        # Get top-k for LLM reranking
-        candidates = list(ce_results[query_id].items())[:top_k_rerank]
-        documents = [(doc_id, data.corpus.get(doc_id, "")) for doc_id, _ in candidates]
-
-        # Generate prompt
-        prompt = _create_listwise_prompt(query_text, documents)
-
-        # Generate
+    def generate(prompt: str) -> str:
         messages = [{"role": "user", "content": prompt}]
         text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         inputs = tokenizer(text, return_tensors="pt").to(model.device)
-
         outputs = model.generate(
-            **inputs,
-            max_new_tokens=100,
-            temperature=0.0,
-            do_sample=False,
-            pad_token_id=tokenizer.eos_token_id,
+            **inputs, max_new_tokens=100, do_sample=False, pad_token_id=tokenizer.eos_token_id
         )
-        response = tokenizer.decode(
+        return tokenizer.decode(
             outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True
         )
 
-        # Parse ranking
-        ranking = _parse_ranking(response, len(documents))
-
-        if ranking is None:
-            parse_failures += 1
-            # Fall back to cross-encoder order
-            reranked = dict(candidates[:top_k_output])
-        else:
-            # Apply new ranking
-            reranked = {}
-            for new_rank, old_idx in enumerate(ranking):
-                if old_idx < len(candidates):
-                    doc_id, _ = candidates[old_idx]
-                    # Score: higher rank = higher score
-                    reranked[doc_id] = float(top_k_rerank - new_rank)
-
-        # Add remaining docs from original results
-        remaining = list(ce_results[query_id].items())[top_k_rerank:top_k_output]
-        for doc_id, score in remaining:
-            if doc_id not in reranked:
-                reranked[doc_id] = float(score) * 0.01
-
-        reranked_results[query_id] = reranked
-
-    console.print(
-        f"  {len(data.queries):,}/{len(data.queries):,} queries processed "
-        f"({len(data.queries) - parse_failures} parsed successfully, "
-        f"{parse_failures} fell back to CE order)"
-    )
-
-    return reranked_results
+    return generate
 
 
-def _run_api_llm(
-    data: ESCIData,
-    ce_results: dict[str, dict[str, float]],
-    top_k_rerank: int,
-    top_k_output: int,
-) -> dict[str, dict[str, float]]:
-    """Run reranking with Claude API."""
+def _api_generate() -> Callable[[str], str]:
     import anthropic
-    from tqdm import tqdm
 
     console.print(f"  Using Claude API: {LLM_MODEL_API}...")
-
     client = anthropic.Anthropic()
 
-    reranked_results: dict[str, dict[str, float]] = {}
-    parse_failures = 0
+    def generate(prompt: str) -> str:
+        response = client.messages.create(
+            model=LLM_MODEL_API, max_tokens=100, messages=[{"role": "user", "content": prompt}]
+        )
+        return response.content[0].text
 
-    for query_id, query_text in tqdm(data.queries.items(), desc="  LLM Reranking"):
-        if query_id not in ce_results:
-            continue
-
-        # Get top-k for LLM reranking
-        candidates = list(ce_results[query_id].items())[:top_k_rerank]
-        documents = [(doc_id, data.corpus.get(doc_id, "")) for doc_id, _ in candidates]
-
-        # Generate prompt
-        prompt = _create_listwise_prompt(query_text, documents)
-
-        try:
-            response = client.messages.create(
-                model=LLM_MODEL_API,
-                max_tokens=100,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            output = response.content[0].text
-
-            # Parse ranking
-            ranking = _parse_ranking(output, len(documents))
-
-            if ranking is None:
-                parse_failures += 1
-                reranked = dict(candidates[:top_k_output])
-            else:
-                reranked = {}
-                for new_rank, old_idx in enumerate(ranking):
-                    if old_idx < len(candidates):
-                        doc_id, _ = candidates[old_idx]
-                        reranked[doc_id] = float(top_k_rerank - new_rank)
-
-        except Exception as e:
-            console.print(f"    [yellow]API error for query {query_id}: {e}[/yellow]")
-            parse_failures += 1
-            reranked = dict(candidates[:top_k_output])
-
-        # Add remaining docs
-        remaining = list(ce_results[query_id].items())[top_k_rerank:top_k_output]
-        for doc_id, score in remaining:
-            if doc_id not in reranked:
-                reranked[doc_id] = float(score) * 0.01
-
-        reranked_results[query_id] = reranked
-
-    console.print(
-        f"  {len(data.queries):,}/{len(data.queries):,} queries processed "
-        f"({len(data.queries) - parse_failures} parsed successfully, "
-        f"{parse_failures} fell back to CE order)"
-    )
-
-    return reranked_results
+    return generate
 
 
-def _run_ollama_llm(
-    data: ESCIData,
-    ce_results: dict[str, dict[str, float]],
-    top_k_rerank: int,
-    top_k_output: int,
-) -> dict[str, dict[str, float]]:
-    """Run reranking with Ollama local model."""
+def _ollama_generate() -> Callable[[str], str]:
     import httpx
-    from tqdm import tqdm
 
     console.print(f"  Using Ollama model: {OLLAMA_MODEL}...")
 
-    reranked_results: dict[str, dict[str, float]] = {}
-    parse_failures = 0
+    def generate(prompt: str) -> str:
+        response = httpx.post(
+            f"{OLLAMA_BASE_URL}/api/generate",
+            json={
+                "model": OLLAMA_MODEL,
+                "prompt": prompt,
+                "stream": False,
+                "options": {"temperature": 0.0, "num_predict": 100},
+            },
+            timeout=60.0,
+        )
+        response.raise_for_status()
+        return response.json().get("response", "")
 
-    for query_id, query_text in tqdm(data.queries.items(), desc="  LLM Reranking"):
-        if query_id not in ce_results:
-            continue
+    return generate
 
-        # Get top-k for LLM reranking
-        candidates = list(ce_results[query_id].items())[:top_k_rerank]
-        documents = [(doc_id, data.corpus.get(doc_id, "")) for doc_id, _ in candidates]
 
-        # Generate prompt
-        prompt = _create_listwise_prompt(query_text, documents)
-
-        try:
-            response = httpx.post(
-                f"{OLLAMA_BASE_URL}/api/generate",
-                headers={"Content-Type": "application/json"},
-                json={
-                    "model": OLLAMA_MODEL,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.0,
-                        "num_predict": 100,
-                    },
-                },
-                timeout=60.0,
-            )
-            response.raise_for_status()
-            output = response.json().get("response", "")
-
-            # Parse ranking
-            ranking = _parse_ranking(output, len(documents))
-
-            if ranking is None:
-                parse_failures += 1
-                reranked = dict(candidates[:top_k_output])
-            else:
-                reranked = {}
-                for new_rank, old_idx in enumerate(ranking):
-                    if old_idx < len(candidates):
-                        doc_id, _ = candidates[old_idx]
-                        reranked[doc_id] = float(top_k_rerank - new_rank)
-
-        except Exception as e:
-            console.print(f"    [yellow]Ollama error for query {query_id}: {e}[/yellow]")
-            parse_failures += 1
-            reranked = dict(candidates[:top_k_output])
-
-        # Add remaining docs
-        remaining = list(ce_results[query_id].items())[top_k_rerank:top_k_output]
-        for doc_id, score in remaining:
-            if doc_id not in reranked:
-                reranked[doc_id] = float(score) * 0.01
-
-        reranked_results[query_id] = reranked
-
-    console.print(
-        f"  {len(data.queries):,}/{len(data.queries):,} queries processed "
-        f"({len(data.queries) - parse_failures} parsed successfully, "
-        f"{parse_failures} fell back to CE order)"
-    )
-
-    return reranked_results
+BACKENDS = {
+    "local": (LLM_MODEL_LOCAL, _local_generate),
+    "ollama": (OLLAMA_MODEL, _ollama_generate),
+    "api": (LLM_MODEL_API, _api_generate),
+}
 
 
 def run_llm_rerank(
@@ -344,35 +195,15 @@ def run_llm_rerank(
     mode: str,
     top_k_rerank: int = TOP_K_RERANK_LLM,
     top_k_output: int = TOP_K_RETRIEVAL,
-) -> dict[str, dict[str, float]]:
-    """
-    Rerank top results using an LLM with listwise ranking.
-
-    Args:
-        data: BEIRData containing corpus
-        ce_results: Results from cross-encoder reranking
-        mode: LLM mode - 'local', 'ollama', or 'api'
-        top_k_rerank: Number of candidates for LLM to rerank (default 10)
-        top_k_output: Number of results to return per query
+) -> tuple[dict[str, dict[str, float]], int]:
+    """Rerank the cross-encoder's top results with an LLM.
 
     Returns:
-        reranked_results: {query_id: {doc_id: llm_score}}
+        ({query_id: {doc_id: rank_score}}, fallback count)
     """
-    if mode == "local":
-        console.print(
-            f"\n[bold cyan]Stage 3: LLM Listwise Reranking ({LLM_MODEL_LOCAL})[/bold cyan]"
-        )
-        return _run_local_llm(data, ce_results, top_k_rerank, top_k_output)
+    if mode not in BACKENDS:
+        raise ValueError(f"Unknown LLM mode: {mode}. Valid modes: {', '.join(BACKENDS)}")
 
-    elif mode == "ollama":
-        console.print(f"\n[bold cyan]Stage 3: LLM Listwise Reranking ({OLLAMA_MODEL})[/bold cyan]")
-        return _run_ollama_llm(data, ce_results, top_k_rerank, top_k_output)
-
-    elif mode == "api":
-        console.print(f"\n[bold cyan]Stage 3: LLM Listwise Reranking ({LLM_MODEL_API})[/bold cyan]")
-        return _run_api_llm(data, ce_results, top_k_rerank, top_k_output)
-
-    else:
-        console.print(f"\n[red]Unknown LLM mode: {mode}[/red]")
-        console.print("  Valid modes: 'local', 'ollama', 'api'")
-        return {}
+    model_name, make_generate = BACKENDS[mode]
+    console.print(f"\n[bold cyan]Stage 3: LLM Listwise Reranking ({model_name})[/bold cyan]")
+    return _rerank(data, ce_results, make_generate(), top_k_rerank, top_k_output)
